@@ -1,0 +1,333 @@
+---
+title: "Regression Models"
+author: "Sean Zhang"
+date: "June 15, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Outline
+For this section, we will discuss Generalized Linear Models and Tree-Based Models. Recursive partitioning is a fundamental tool in data mining. It helps us explore the stucture of a set of data, while developing easy to visualize decision rules for predicting a categorical (classification tree) or continuous (regression tree) outcome.
+
+* Generalized Linear Model
+    + Classical Logistic Regression 
+    + Ordinal Logistic Regression 
+    + Multinomial Logistic Regression
+    + Boosted Generalized Linear Model
+    + Generalized Linear Model with lasso or elasticnet
+* Classification and Regression Trees Model(CART)
+    + Classification Tree Model
+    + Regression Tree Model
+    + Conditional Inference Tree Model
+    + Random Forests
+    + Gradient Boosting Trees
+
+
+```{r load library, include = FALSE}
+library(pscl)
+library(MASS)
+library(VGAM)
+library(quantreg)
+library(mboost)
+library(rpart)
+library(party)
+library(randomForest)
+library(glmnet)
+library(gbm)
+library(nnet)
+```
+
+### Create random dataset 
+create a fake random 1000 * 5 matrix corresponding to 50 features with 1000 observations
+
+```{r create_dataset}
+set.seed(2016)
+test_data <-  data.frame(matrix( rnorm(100000*50,mean=0,sd=1), 100000, 50)) 
+
+#intercept 
+test_data$X1 <- sample(1,100000, replace = T)
+#binary 
+test_data$X2 <- sample(0:1,100000, replace = T)
+#ordinal
+test_data$X3 <- sample(1:3,100000, replace = T)
+#4 level nominal
+test_data$X4 <- sample(1:4,100000, replace = T)
+#count data, with 90% zero value
+test_data$X5 <- sample(c(0,1),100000,  replace = T, prob = c(0.9,0.1))
+```
+
+
+### Preview the test dataset
+
+Look at the first two row of the test datase 
+
+```{r test_data, echo=FALSE}
+head(test_data,2)
+```
+
+
+### Generalized Linear Model 
+Generalized linear models extend the general linear model framework to
+
+* the range of Y is restricted (e.g. binary, count)
+* the variance of Y depends on the mean. A variance function that describes how the variance depends on the mean, and the link function describes how the mean depends on the linear predictor. 
+
+Following model we focus on the binomial data with binary response, known as logistic regression model. 
+
+
+```{r logistic_reg_glm}
+#Generalized Linear Model Binomial data
+logistic_reg_glm <- function(){
+    system.time(
+        model <- glm(X2 ~ ., data = test_data, family = binomial())
+    )
+}
+
+```
+
+Using `system.time()` to test the excution time of running possion model in the fake dataset. 
+
+```{r excution_poission, echo = FALSE}
+t_logistic_reg_glm <- logistic_reg_glm()
+t_logistic_reg_glm
+```
+
+
+### Ordinal Logistic Regression
+When the response categories are ordered, you could run a multinomial regression model.  The disadvantage is that you are throwing away information about the ordering. An ordinal logistic regression model preserves that information, but it is slightly more involved.  
+
+*Require* `library(MASS)`
+
+```{r orderedLogit}
+orderedLogit <- function(){
+    test_data$X3 <- as.factor(test_data$X3)
+    system.time(
+        model_3 <- polr(X3 ~ . , data = test_data, Hess=TRUE)
+    )
+}
+```
+
+Using `system.time()` to test the excution time of running possion model in the fake dataset. 
+
+```{r excution_orderedLogit, echo = FALSE, warning= FALSE}
+t_orderedLogit <- orderedLogit()
+t_orderedLogit
+```
+
+
+### Multinomial Logistic Regression
+The multinomial (a.k.a. polytomous) logistic regression model is a simple extension of the binomial logistic regression model.  They are used when the dependent variable has more than two nominal (unordered) categories.
+
+*Require* `library(nnet)`
+
+```{r multinomial}
+multinomial <- function(){
+    test_data$X3 <- as.factor(test_data$X3)
+    #choose the level of outcome as baseline
+    test_data$X3 <- relevel(test_data$X3, ref = '3')
+    system.time(
+        model <- multinom(X3 ~ ., data = test_data)
+    )
+}
+```
+
+Using `system.time()` to test the excution time of running possion model in the fake dataset. 
+
+```{r excution_multinomial, include=FALSE}
+t_multinomial <- multinomial()
+```
+```{r print excution_multinomial, echo = FALSE}
+t_multinomial
+```
+
+### Boosted Generalized Linear Model
+A generalized linear model is fitted using a boosting algorithm based on component-wise univariate linear models.  Unlike the glm function, glmboost will perform variable selection.
+
+*require* `library(mboost)`. 
+
+```{r boosted_glm}
+boosted_glm <- function(){
+    test_data$X3 <- as.numeric(test_data$X3)
+    #each time run the model may have slightly different execution time
+    system.time(
+        model_4 <-  glmboost(X3 ~ ., data = test_data)
+    )
+}
+```
+
+Using `system.time()` to test the excution time of running model in the fake dataset. 
+
+```{r excution_boosted_glm, echo = FALSE}
+t_boosted_glm <- boosted_glm()
+t_boosted_glm
+```
+
+
+
+
+### Generalized Linear Model with lasso or elasticnet
+Fitting a generalized linear model via penalized maximum likelihood. The regularization path is computed for the lasso or elasticnet penalty.
+
+Lasso is a shrinkage estimator: it generates coefficient estimates that are biased to be small. Nevertheless, a lasso estimator can have smaller error than an ordinary maximum likelihood estimator when you apply it to new data. Lasso estimator is a smaller model, with fewer predictors. As such, lasso is an alternative to stepwise regression and other model selection and dimensionality reduction techniques.
+
+Elastic net is a related technique. Elastic net is akin to a hybrid of ridge regression and lasso regularization. Like lasso, elastic net can generate reduced models by generating zero-valued coefficients. Empirical studies suggest that the elastic net technique can outperform lasso on data with highly correlated predictors.
+
+Quantitative for `family="gaussian"`, or `family="poisson"` (non-negative counts). For `family="binomial"` should be either a factor with two levels.
+
+*require* `library(glmnet)`.    
+*Reference* http://www.mathworks.com/help/stats/lasso-regularization-of-generalized-linear-models.html?requestedDomain=www.mathworks.com#btdy0d0-1
+
+
+```{r lasso_glm}
+lasso_glm <- function(){
+    #glmnet need a matrix of predictors, not a data frame
+    x = as.matrix(data.frame(test_data))
+    #cuz here choose binomial family, so y should binary 
+    system.time(
+        model <- glmnet(x,y=test_data$X2,alpha=1,family='binomial')
+    )
+}
+```
+
+Using `system.time()` to test the excution time of running model in the fake dataset. 
+
+```{r excution_lasso_glm, echo = FALSE, warning=FALSE}
+t_lasso_glm <- lasso_glm()
+t_lasso_glm
+```
+
+
+
+
+### Classification Tree Model
+*Reference* http://www.statmethods.net/advstats/cart.html  
+*require* `library(rpart)`. 
+
+```{r class_tree}
+
+class_tree <- function(){
+    system.time(
+        model <- rpart(X3 ~ . , method="class", data=test_data)
+    )
+}
+```
+
+Using `system.time()` to test the excution time of running model in the fake dataset. 
+
+```{r excution_class_tree, echo = FALSE}
+t_class_tree <- class_tree()
+t_class_tree
+```
+
+
+### Regression Tree Model
+
+*require* `library(rpart)`. 
+
+```{r reg_tree}
+
+reg_tree <- function(){
+    system.time(
+        model <- rpart(X3 ~ . , method="anova", data=test_data)
+    )
+}
+```
+
+Using `system.time()` to test the excution time of running model in the fake dataset. 
+
+```{r excution_reg_tree, echo = FALSE}
+t_reg_tree <- reg_tree()
+t_reg_tree
+```
+
+### Conditional Inference Tree Model
+The type of tree created will depend on the outcome variable (nominal factor, ordered factor, numeric, etc.). Tree growth is based on statistical stopping rules, so pruning should not be required.
+
+*require* `library(party)`. 
+
+```{r Conditional_tree}
+Conditional_tree <- function(){
+    system.time(
+        model <- ctree(X3 ~ ., data=test_data)
+    )
+}
+```
+
+Using `system.time()` to test the excution time of running model in the fake dataset. 
+
+```{r excution_Conditional_tree, echo = FALSE ,warning= FALSE}
+t_Conditional_tree <- Conditional_tree()
+t_Conditional_tree
+```
+
+### Random Forests
+Random forests improve predictive accuracy by generating a large number of bootstrapped trees (based on random samples of variables), classifying a case using each tree in this new "forest", and deciding a final predicted outcome by combining the results across all of the trees (an average in regression, a majority vote in classification)
+
+*require* `library(randomForest)`. 
+
+```{r random_forest}
+random_forest <- function(){
+    system.time(
+        model <- randomForest(X3 ~ X4 + X5 + X6, data=test_data)
+    )
+}
+```
+
+Using `system.time()` to test the excution time of running model in the fake dataset. 
+
+```{r excution_random_forest, echo = FALSE, warning= FALSE}
+t_random_forest <- random_forest()
+t_random_forest
+```
+
+Notice that for random forest model, if the variable number large, the execution time will be super long. 
+
+### Gradient Boosting Trees
+The algorithm for Boosting Trees evolved from the application of boosting methods to regression trees. The general idea is to compute a sequence of (very) simple trees, where each successive tree is built for the prediction residuals of the preceding tree.
+
+*Require* `library(gbm)`
+
+```{r boosted_tree}
+boosted_tree <- function(){
+    system.time(
+        model <- gbm(X3 ~ ., data=test_data)
+    )
+}
+```
+
+Using `system.time()` to test the excution time of running model in the fake dataset. 
+
+```{r excution_boosted_tree, include= FALSE}
+t_boosted_tree <- boosted_tree()
+```
+```{R print, echo = FALSE}
+t_boosted_tree
+```
+
+
+### Execution Comparision of all regression model 
+
+```{r comparision, echo=FALSE}
+exe_time <- rbind(t_logistic_reg_glm,t_orderedLogit,t_multinomial,t_boosted_glm,t_lasso_glm,t_class_tree,
+                  t_reg_tree,t_Conditional_tree,t_random_forest,t_boosted_tree)
+exe_time <- as.data.frame(exe_time) 
+#plot the excution time
+par(las=2) # make label text perpendicular to axis
+par(mar=c(5,8,4,3)) # increase y-axis margin.
+p <- barplot(
+    (exe_time$elapsed),
+    horiz=TRUE,
+    xlab = "Execution total time",
+    col=c("blue","blue","blue","blue","blue","red","red","red","red","red"),
+    names.arg = c("logistic_reg_glm", "orderedLogit", "multinomial ","boosted_glm","lasso_glm","class_tree" ,"reg_tree","Conditional_tree","random_forest","boosted_tree"),
+    cex.names=0.7
+)
+text(x = exe_time$elapsed + 2, y = p, labels = round(exe_time$elapsed, 2),xpd = T) 
+```
+
+
+
+

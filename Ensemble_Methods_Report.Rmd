@@ -1,0 +1,322 @@
+---
+title: "Ensemble Methods"
+author: "Sean Zhang"
+date: "June 16, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+###Outline
+Ensemble methods are techniques that create multiple models and then combine them to produce improved results. There are two methods following, 
+
+* **Averaging Methods**: the driving principle is to build several estimators independently and then to average their predictions. On average, the combined estimator is usually better than any of the single base estimator because its variance is reduced.
+    +  Bagging Methods (Bootstrap Aggregating)
+    +  Forests of Randomized Trees
+* **Boosting Methods**: base estimators are built sequentially and one tries to reduce the bias of the combined estimator. The motivation is to combine several weak models to produce a powerful ensemble.
+    + AdaBoost (Adaptive Boosting)
+    + Gradient Tree Boosting
+
+```{r load library, include = FALSE}
+library(caret)
+library(mlbench)
+library(rpart)
+library(adabag)
+library(randomForest)
+library(gbm)
+```
+
+###Testing Dataset
+We will use Vehicle dataset from `library(mlbench)`. Vehicle dataset have 846 observations and 19 variables. I will use `Vehicle$Class` as my response.
+```{r dataset}
+#library(caret)
+#library(mlbench)
+data(Vehicle)
+dim(Vehicle)
+#split dataset to train data and test data
+set.seed(1)
+inTrain <- createDataPartition(y=Vehicle$Class, p=0.7, list=FALSE)
+train_vehicle <- Vehicle[inTrain,]
+test_vehicle <- Vehicle[-inTrain,]
+
+```
+
+
+### Bagging Methods
+Bagging, is taking multiple random samples(with replacement) from your training data set, and using each of these samples to construct a separate model and separate predictions for your test set. These predictions are then averaged to create final prediction value.
+
+1. Create Bootstrap samples of a training set using sampling with replacement.
+2. Each bootstrap sample is used to train a different component of base classifier.
+3. Assign each observation to a final category by a majority vote over the set of trees.
+
+*Require* `library(rpart)` and `library(adabag)`
+
+```{R bagging}
+#library(rpart)
+#library(adabag)
+
+num_obs <- length(train_vehicle[,1])
+#length of the subsample
+sub <- sample(1:num_obs,(2*num_obs)/3)
+
+
+# mfinal = the number of iterations for which boosting is run or the number of trees to use
+vehicle_bagging <- bagging(Class ~ ., 
+                           data=train_vehicle[sub, ], 
+                           mfinal= 18,
+                           control=rpart.control(maxdepth=5, minsplit=15))
+
+#predict the class of test dataset
+vehicle_bagging_pred <- predict.bagging(vehicle_bagging,
+                                        newdata = test_vehicle,
+                                        newmfinal=10
+)
+
+```
+
+Compare the prediction with real response, and calculate model accuarcy. 
+
+```{r bagging accuarcy, echo = FALSE, warning=FALSE}
+correct <- vehicle_bagging_pred$class == as.character(test_vehicle$Class)
+accuracy_bag = 1 - vehicle_bagging_pred$error
+```
+```{r accuracy_bag}
+accuracy_bag
+```
+
+Using `system.time()` to test the excution time of running model in the training dataset. 
+
+```{r execution time bagging,echo=FALSE,warning=FALSE}
+t_bagging <- system.time(
+        vehicle_bagging <- bagging(Class ~ ., 
+                           data=train_vehicle[sub, ], 
+                           mfinal= 18,
+                           control=rpart.control(maxdepth=5, minsplit=15))
+    )
+t_bagging
+```
+
+
+### Random Forest
+Random forest method is bagging applied to decision trees, so we can say random forests is a variant of bagging. Bagging constructs a large number of trees with bootstrap samples from a dataset. But now, as each tree is constructed, take a random sample of predictors before each node is split. For example, if there are twenty predictors, choose a random five as candidates for constructing the best split. Repeat this process for each node until the tree is large enough.
+
+Advantage of Random Forest are following, 
+
+1. Variance reduction: the trees are more independent because of the combination of bootstrap samples and random draws of predictors. 
+2. Bias reduction: a very large number of predictors can be considered, and local feature predictors can play a role in the tree construction.
+
+
+```{R random forest}
+#library(randomForest)
+vehicle_rf <- randomForest(Class ~., 
+                           data = train_vehicle,
+                           importance = TRUE,
+                           ntree = 3000)
+
+vehicle_rf_pred <- predict(vehicle_rf, test_vehicle)
+```
+
+Compare the prediction with real response, and calculate model accuarcy. 
+
+```{r random forest accuarcy, echo = FALSE, warning=FALSE}
+correct <- as.character(vehicle_rf_pred) == as.character(test_vehicle$Class)
+table(correct)
+correct_table <- as.data.frame(table(correct))
+accuracy_rf = correct_table[2,2]/(correct_table[2,2] + correct_table[1,2])
+
+```
+```{r accuracy_rf}
+accuracy_rf
+```
+
+Using `system.time()` to test the excution time of running model in the training dataset. 
+
+```{r execution random forest, echo=FALSE,warning=FALSE}
+t_rf <- system.time(
+        vehicle_rf <- randomForest(Class ~., 
+                           data = train_vehicle,
+                           importance = TRUE,
+                           ntree = 300)
+    )
+t_rf
+
+```
+
+
+###AdaBoost
+A technique for combining multiple base classifiers whose combined performance is significantly better than that of any of the base classifiers.
+
+1. Increase weights on misclassified data, apply second classifier until all classifiers have been trained.
+2.  Each base classifier is trained on data that is weighted based on the performance of the previous classifier. 
+3. Each classifier votes to obtain a final outcome.
+
+*Require* `library(adabag)`
+
+```{r adabst}
+#library(adabag)
+
+vehicle_adabst <- {
+    boosting(Class ~ .,
+             data=train_vehicle,
+             boos=TRUE,
+             mfinal=20,
+             #indicates using M1 algorithm proposed by Breiman
+             # Other options are "Freund" and "Zhu"
+             coeflearn='Breiman')
+}
+
+#summary(vehicle_adabst)
+#vehicle_adabst$trees
+#vehicle_adabst$weights
+#vehicle_adabst$importance
+
+
+
+```
+
+
+Compare the prediction with real response, and calculate model accuarcy. 
+
+```{r adabst accuarcy, echo = FALSE, warning=FALSE}
+vehicle_adabst_pred = predict(vehicle_adabst,test_vehicle)
+```
+```{r accuracy_adabst}
+accuracy_adabst = 1 - vehicle_adabst_pred$error
+accuracy_adabst
+```
+
+Using `system.time()` to test the excution time of running model in the training dataset. 
+
+```{r execution adabst, echo=FALSE,warning=FALSE}
+t_adabst <- system.time(
+    vehicle_adabst <- {
+        boosting(Class ~ .,
+                 data=train_vehicle,
+                 boos=TRUE,
+                 mfinal=20,
+                 #indicates using M1 algorithm proposed by Breiman
+                 # Other options are "Freund" and "Zhu"
+                 coeflearn='Breiman')
+    }
+        )
+t_adabst
+```
+
+
+###Gradient Boosted Model
+Gradient Boosting = Gradient Descent + Boosting. 
+
+Gradient boosting is to learn sequence of predictors, then compute the error residual. Try to fit the error residual,and combine previous predictors with residual predictor, that is to say adjust predictors to try to reduce the error. Repeat.
+
+*Require* `library(gbm)`
+
+```{r gbm}
+#library(gbm)
+vehicle_gbm <- {
+    gbm(Class ~ ., 
+        data = train_vehicle,
+        #n.tree number will affect the execution time
+        n.trees=500,
+        shrinkage=0.01,
+        distribution="multinomial",
+        interaction.depth=7,
+        bag.fraction=0.9,
+        cv.fold=10,
+        n.minobsinnode = 50
+         )
+    
+}
+
+```
+```{r gbm preformance,warning=FALSE}
+#we need enough n.tree to find the best iteration
+best.iter <- gbm.perf(vehicle_gbm,method="OOB")
+```
+
+```{r prediction gmb, warning=FALSE}
+#prediction for the test dataset
+vehicle_gbm_pred = predict(vehicle_gbm,test_vehicle,best.iter, type='response')
+vehicle_gbm_pred <- apply(vehicle_gbm_pred, 1, which.max)
+#convert to categorical response
+vehicle_gbm_pred <- sapply(vehicle_gbm_pred, function(x) if (x==1) x ="bus" else if (x== 2) x ="opel" else if (x== 3) x = "saab" else x = "van")
+```
+
+Compare the prediction with real response, and calculate model accuarcy. 
+
+```{r gbm accuarcy, echo = FALSE, warning=FALSE}
+
+correct <- vehicle_gbm_pred == as.character(test_vehicle$Class)
+correct_table <- as.data.frame(table(correct))
+accuracy_gbm = correct_table[2,2]/(correct_table[2,2] + correct_table[1,2])
+```
+```{r accuracy_gbm}
+accuracy_gbm
+```
+
+Using `system.time()` to test the excution time of running model in the training dataset. 
+
+```{r execution gbm, echo=FALSE,warning=FALSE}
+t_gbm <- system.time(
+    vehicle_gbm <- {
+        gbm(Class ~ ., 
+            data = train_vehicle,
+            #n.tree number will affect the execution time
+            n.trees=10,
+            shrinkage=0.01,
+            distribution="multinomial",
+            interaction.depth=7,
+            bag.fraction=0.9,
+            cv.fold=10,
+            n.minobsinnode = 50
+             )
+        
+    }
+    )
+t_gbm
+```
+
+### Accuracy Comparision of Ensemble model 
+
+```{r accuracy comparision, echo=FALSE}
+accuracy <- rbind(accuracy_bag,accuracy_rf, accuracy_adabst,accuracy_gbm)
+accuracy <- as.data.frame(accuracy) 
+#plot the accuracy
+par(las=2) # make label text perpendicular to axis
+par(mar=c(5,8,4,5)) # increase y-axis margin.
+p <- barplot(
+    (accuracy$V1),
+    horiz=TRUE,
+    xlab = "Accuracy",
+    names.arg = c("Bagging",  "RandomForest ", "AdaBoosting","GBM "),
+    cex.names=0.7
+)
+text(x = accuracy$V1 + 0.051, y = p, labels = round(accuracy$V1, 2),xpd = T) 
+```
+
+### Execution Comparision of Ensemble model 
+
+```{r comparision, echo=FALSE}
+exe_time <- rbind(t_bagging,t_rf,t_adabst,t_gbm)
+exe_time <- as.data.frame(exe_time) 
+#plot the excution time
+par(las=2) # make label text perpendicular to axis
+par(mar=c(5,8,4,3)) # increase y-axis margin.
+p <- barplot(
+    (exe_time$elapsed),
+    horiz=TRUE,
+    xlab = "Execution total time",
+    names.arg = c("Bagging", "RandomForest ", "AdaBoosting" ,"GBM "),
+    cex.names=0.7
+)
+text(x = exe_time$elapsed + 0.3, y = p, labels = round(exe_time$elapsed, 2),xpd = T) 
+```
+
+
+
+
+
+
+
+

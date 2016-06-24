@@ -1,0 +1,113 @@
+---
+title: "Other Model"
+author: "Sean Zhang"
+date: "June 13, 2016"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Outline
+Count data often analyzed incorrectly with OLS regression, then we introduce count model. 
+
+* Tobit Regression(censored regression model)
+* Quantile Regression
+* Rank Regression
+
+
+```{r load library, include = FALSE}
+library(pscl)
+library(MASS)
+library(VGAM)
+library(quantreg)
+```
+
+### Create random dataset 
+create a fake random 1000 * 5 matrix corresponding to 50 features with 1000 observations
+
+```{r create_dataset}
+set.seed(2016)
+test_data <-  data.frame(matrix( rnorm(100000*50,mean=0,sd=1), 100000, 50)) 
+
+#intercept 
+test_data$X1 <- sample(1,100000, replace = T)
+#binary 
+test_data$X2 <- sample(0:1,100000, replace = T)
+#ordinal
+test_data$X3 <- sample(1:3,100000, replace = T)
+#4 level nominal
+test_data$X4 <- sample(1:4,100000, replace = T)
+#count data, with 90% zero value
+test_data$X5 <- sample(c(0,1),100000,  replace = T, prob = c(0.9,0.1))
+```
+
+
+### Preview the test dataset
+
+Look at the first two row of the test datase 
+
+```{r test_data, echo=FALSE}
+head(test_data,2)
+```
+
+
+### Tobit Regression
+Tobit regression also is called censored regression. Censored and truncated are two differnet definitions. 
+
+* Y is censored when we observe X for all observations, but we only know the true value of Y for a restricted range of observations. 
+* Y is truncated when we only observe X for observations where Y would not be censored. We do not have a full sample for {Y,X}. 
+
+Censoring from above(also called as censoring from right) known takes place when cases with a value at or above some threshold, all take on the value of that threshold, so that the true value might be equal to the threshold, but it might also be higher.
+
+*require* `library(VGAM)`.  
+*Reference* http://www.bauer.uh.edu/rsusmel/phd/ec1-23.pdf ,  http://www.ats.ucla.edu/stat/r/dae/tobit.htm
+
+```{r tobit_model}
+#Model 14: Tobit 
+tobit_reg <- function(){
+    # upper = Any value of the linear model that is greater than this upperbound is assigned this value. 
+    system.time(
+        model_14 <- vglm(X4 ~ X5 + X6 +X7, family = tobit(Upper = 3), data = test_data)
+    )
+}
+
+```
+
+Using `system.time()` to test the excution time of running model in the fake dataset. 
+
+```{r excution_poission, echo = FALSE}
+t_tobit_reg <- tobit_reg()
+t_tobit_reg
+```
+
+### Quantile Regression
+Quantile regression allows us to study the impact of predictors on different quantiles of the response distribution, and thus provides a complete picture of the relationship between Y and X. For the mean regression, some cases may do not have significant trend in mean. However, if we divide y to differnet quantiles over the X, we may can find some relaionship.
+
+Also quantile regression are robust to outliners in y observation. In health care cost data, extremely high cost patients sometimes can be considered as outliners.  
+
+*require* `library(quantreg)`.  
+*Reference* http://www.wise.xmu.edu.cn/UploadFiles/SS2011/Uploadfiles/2013714144421348.pdf
+
+
+```{r quantile_reg_model}
+#Model 15: Tobit 
+quantile_reg <- function(){
+    #The default tau setting is 0.5, the median.
+    system.time(
+        model_15 <- rq(X4 ~ X5 + X6 +X7, tau = 0.25 , data = test_data)
+    )
+}
+
+```
+
+Using `system.time()` to test the excution time of running model in the fake dataset. 
+
+```{r excution_quantile, echo = FALSE}
+#4 times of execution time, because we divide data set to 4 different quantitle 
+t_quantile_reg <- quantile_reg() *4
+t_quantile_reg 
+```
+
